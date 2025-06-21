@@ -1,0 +1,95 @@
+# Base LoRA Configuration for TinyFT
+# Copy and modify this file for your experiments
+
+# Model Settings
+model_name: "Qwen/Qwen2.5-7B-Instruct"
+max_seq_length: 32768                    # Qwen2.5 supports up to 128K context
+use_flash_attention: true
+
+# Fine-tuning Method
+method: "lora"
+lora_config_path: "configs/lora_config.yaml"
+
+# Training Hyperparameters
+learning_rate: 2e-4
+batch_size: 8
+gradient_accumulation_steps: 4
+num_epochs: 3
+max_steps: null
+warmup_steps: 100
+eval_steps: 500
+
+# Optimization Settings
+optimizer: "adamw"
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+# Learning Rate Scheduler
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.03
+
+# Mixed Precision Training
+fp16: false
+bf16: true                               # Recommended for Qwen2.5
+
+# Data Settings
+dataset_path: "yahma/alpaca-cleaned"
+instruction_column: "instruction"
+input_column: "input"
+output_column: "output"
+response_template: "### Response:"
+max_train_samples: null                  # Use all data
+max_eval_samples: 1000
+
+# Logging and Checkpointing
+output_dir: "./outputs/qwen2.5-7b-lora"
+logging_steps: 10
+save_steps: 1000
+save_total_limit: 3
+logging_backend: "tensorboard"
+eval_strategy: "steps"
+save_strategy: "steps"
+
+# Memory Optimization
+gradient_checkpointing: true
+dataloader_num_workers: 4
+dataloader_pin_memory: true
+group_by_length: true
+
+# Miscellaneous
+seed: 42
+remove_unused_columns: false
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+greater_is_better: false
+resume_from_checkpoint: null
+
+# Data Processing
+truncation: true
+padding: "max_length"
+streaming: false
+
+# Evaluation
+evaluation_strategy: "steps"
+eval_accumulation_steps: null
+
+# Logging and Monitoring
+logging_dir: "./logs"
+run_name: null
+project_name: "tinyft_lora"
+
+# Advanced Settings
+save_only_model: true
+report_to: []
+
+# Early Stopping
+early_stopping_patience: 5
+early_stopping_threshold: 0.001
+
+# Chat Template
+chat_template: null
+add_special_tokens: true
+
+# Memory and Performance
+auto_find_batch_size: true
+ddp_find_unused_parameters: false 

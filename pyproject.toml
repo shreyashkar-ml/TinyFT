@@ -1,0 +1,127 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tinyft"
+version = "0.1.0"
+description = "Lightweight fine-tuning library for large language models"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Shreyashkar", email = "ishreyashkar06@gmail.com"}
+]
+keywords = ["machine learning", "deep learning", "fine-tuning", "llm", "lora", "qlora"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "torch>=2.0.0",
+    "transformers>=4.30.0",
+    "datasets>=2.10.0",
+    "accelerate>=0.20.0",
+    "peft>=0.4.0",
+    "tqdm>=4.65.0",
+    "pyyaml>=6.0",
+    "numpy>=1.21.0",
+    "tokenizers>=0.13.0",
+    "safetensors>=0.3.0",
+    "scipy>=1.9.0",
+    "scikit-learn>=1.1.0",
+    "tensorboard>=2.13.0",
+    "wandb>=0.15.0",
+    "bitsandbytes>=0.41.0",
+    "vllm>=0.2.0",
+    "sglang>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "pytest-mock>=3.10.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "isort>=5.12.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+]
+
+docs = [
+    "sphinx>=5.0.0",
+    "sphinx-rtd-theme>=1.2.0",
+]
+
+examples = [
+    "jupyter>=1.0.0",
+    "ipykernel>=6.0.0",
+]
+
+[project.scripts]
+tinyft-train-sft = "tinyft.scripts.train_sft:main"
+tinyft-train-pretrain = "tinyft.scripts.train_pretrain:main"
+tinyft-merge-adapters = "tinyft.scripts.merge_adapters:main"
+
+[project.urls]
+Homepage = "https://github.com/shreyashkar-ml/tinyft"
+Repository = "https://github.com/shreyashkar-ml/tinyft"
+Issues = "https://github.com/shreyashkar-ml/tinyft/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tinyft*"]
+exclude = ["tests*"]
+
+[tool.setuptools.package-data]
+tinyft = ["*.yaml", "*.yml"]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
+line_length = 88
+known_first_party = ["tinyft"]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true 

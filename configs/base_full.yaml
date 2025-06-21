@@ -1,0 +1,108 @@
+# Base Full Fine-Tuning Configuration for TinyFT
+# Standard full fine-tuning without parameter efficiency
+# Copy and modify this file for your experiments
+
+# Model Settings
+model_name: "google/gemma-2-2b-it"
+max_seq_length: 8192                     # Gemma-2 supports 8K context length
+use_flash_attention: true
+
+# Fine-tuning Method
+method: "full"
+
+# Training Hyperparameters
+learning_rate: 5e-5
+batch_size: 2
+gradient_accumulation_steps: 16
+num_epochs: 1
+max_steps: null
+warmup_steps: 100
+eval_steps: 500
+
+# Optimization Settings
+optimizer: "adamw"
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+# Learning Rate Scheduler
+lr_scheduler_type: "linear"
+warmup_ratio: 0.05
+
+# Mixed Precision Training
+fp16: false
+bf16: true                               # Recommended for Gemma-2
+
+# Data Settings
+dataset_path: "yahma/alpaca-cleaned"
+instruction_column: "instruction"
+input_column: "input"
+output_column: "output"
+response_template: "### Response:"
+max_train_samples: 10000                 # Smaller for full fine-tuning
+max_eval_samples: 1000
+
+# Logging and Checkpointing
+output_dir: "./outputs/gemma-2-2b-full"
+logging_steps: 10
+save_steps: 500
+save_total_limit: 2                      # Keep fewer checkpoints (large model files)
+logging_backend: "tensorboard"
+eval_strategy: "steps"
+save_strategy: "steps"
+
+# Memory Optimization
+gradient_checkpointing: true
+dataloader_num_workers: 1                # Minimal workers to save memory
+dataloader_pin_memory: false             # Disable pin memory to save GPU memory
+group_by_length: true
+save_only_model: true
+
+# Advanced Settings
+deepspeed_config: null
+fsdp: false
+
+# Miscellaneous
+seed: 42
+remove_unused_columns: false
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+greater_is_better: false
+resume_from_checkpoint: null
+
+# Data Processing
+truncation: true
+padding: "max_length"
+
+# Evaluation
+evaluation_strategy: "steps"
+eval_accumulation_steps: null
+
+# Logging and Monitoring
+run_name: null
+project_name: "tinyft_full"
+
+# Hardware Settings
+auto_find_batch_size: false
+ddp_find_unused_parameters: false
+
+# Advanced Settings
+report_to: []
+
+# Early Stopping (important for full fine-tuning)
+early_stopping_patience: 5              # Enable early stopping
+early_stopping_threshold: 0.001         # Early stopping threshold
+
+# Chat Template
+chat_template: null                     # Custom chat template (null = auto-detect)
+add_special_tokens: true                # Add special tokens during tokenization
+
+# Memory and Performance (critical for full fine-tuning)
+auto_find_batch_size: true              # Auto-find batch size for memory optimization
+ddp_find_unused_parameters: true        # Enable for full fine-tuning 
+
+# LoRA Settings
+lora_r: 8                               # LoRA rank
+lora_alpha: 16                          # LoRA alpha
+lora_dropout: 0.05                      # LoRA dropout
+lora_bias: "none"                       # LoRA bias type
+lora_modules: ["q_proj", "k_proj", "v_proj", "o_proj"]  # Modules to apply LoRA

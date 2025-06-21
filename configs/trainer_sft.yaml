@@ -1,0 +1,98 @@
+# TinyFT Trainer Configuration
+# Supervised Fine-Tuning (SFT) training parameters
+
+# Model Settings
+model_name: "meta-llama/Llama-2-7b-hf"
+max_seq_length: 2048
+use_flash_attention: false
+
+# Fine-tuning Method
+method: "lora"
+lora_config_path: "configs/lora_config.yaml"
+
+# Training Hyperparameters
+learning_rate: 2e-4
+batch_size: 4
+gradient_accumulation_steps: 8
+num_epochs: 3
+max_steps: null
+warmup_steps: 100
+warmup_ratio: 0.03
+
+# Optimization Settings
+optimizer: "adamw"
+weight_decay: 0.01
+adam_beta1: 0.9
+adam_beta2: 0.999
+adam_epsilon: 1e-8
+max_grad_norm: 1.0
+
+# Learning Rate Scheduler
+lr_scheduler_type: "cosine"
+num_cycles: 0.5
+
+# Mixed Precision Training
+fp16: false
+bf16: true                              # Better for LoRA
+fp16_opt_level: "O1"
+
+# Data Settings
+dataset_path: "yahma/alpaca-cleaned"
+streaming: false
+max_train_samples: null                 # Use all data
+max_eval_samples: 1000
+
+# SFT-specific Settings
+instruction_column: "instruction"
+input_column: "input"
+output_column: "output"
+response_template: "\n### Response:\n"
+
+# Data Processing
+truncation: true
+padding: "max_length"
+remove_unused_columns: true
+
+# Evaluation
+evaluation_strategy: "steps"
+eval_steps: 500
+eval_accumulation_steps: null
+metric_for_best_model: "eval_loss"
+greater_is_better: false
+load_best_model_at_end: true
+
+# Logging and Monitoring
+logging_backend: "tensorboard"
+logging_dir: "./logs"
+logging_steps: 10
+run_name: null
+project_name: "tinyft_sft"
+
+# Checkpointing
+output_dir: "./outputs"
+save_strategy: "steps"
+save_steps: 500
+save_total_limit: 2
+save_only_model: true
+
+# Hardware Settings
+dataloader_num_workers: 1               # Minimal workers to save memory
+dataloader_pin_memory: false            # Disable pin memory to save GPU memory
+group_by_length: true
+
+# Advanced Settings
+gradient_checkpointing: true
+seed: 42
+report_to: []
+
+# Early Stopping
+early_stopping_patience: 5
+early_stopping_threshold: 0.001
+
+# Chat Template
+chat_template: null
+add_special_tokens: true
+
+# Memory and Performance
+auto_find_batch_size: true
+ddp_find_unused_parameters: false 

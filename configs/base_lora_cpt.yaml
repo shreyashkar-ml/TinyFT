@@ -1,0 +1,81 @@
+# Base LoRA Configuration for Continued Pre-Training
+# Domain adaptation through continued pre-training
+# Copy and modify this file for your experiments
+
+# Model Settings
+model_name: "Qwen/Qwen2.5-7B-Instruct"
+max_seq_length: 32768                    # Longer sequences for continued pre-training
+use_flash_attention: true
+
+# Fine-tuning Method
+method: "lora"
+lora_config_path: "configs/lora_config.yaml"
+
+# Training Hyperparameters
+learning_rate: 1e-4
+batch_size: 2
+gradient_accumulation_steps: 16
+num_epochs: 1
+max_steps: null
+warmup_steps: 500
+eval_steps: 1000
+
+# Optimization Settings
+optimizer: "adamw"
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+# Learning Rate Scheduler
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.05
+
+# Mixed Precision Training
+fp16: false
+bf16: true                               # Recommended for Qwen2.5
+
+# Data Settings
+dataset_path: "c4"                       # Use C4 or similar pre-training dataset
+dataset_config_name: "en"
+streaming: true
+text_column: "text"
+max_train_samples: null                  # Use all available data
+max_eval_samples: 1000
+preprocessing_num_workers: 8
+
+# Logging and Checkpointing
+output_dir: "./outputs/qwen2.5-7b-cpt-lora"
+logging_steps: 50
+save_steps: 2000
+save_total_limit: 3
+logging_backend: "tensorboard"
+eval_strategy: "steps"
+save_strategy: "steps"
+
+# Memory Optimization
+gradient_checkpointing: true
+dataloader_num_workers: 4
+dataloader_pin_memory: true
+group_by_length: true
+remove_unused_columns: true
+
+# Advanced CPT Settings
+max_length: 32768
+min_length: 512
+block_size: 32768
+mlm_probability: 0.15                    # If applicable
+
+# Miscellaneous
+seed: 42
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+greater_is_better: false
+resume_from_checkpoint: null
+report_to: []
+
+# Early Stopping
+early_stopping_patience: null           # Disabled for CPT
+early_stopping_threshold: 0.0
+
+# Hardware Settings
+auto_find_batch_size: true
+ddp_find_unused_parameters: false 

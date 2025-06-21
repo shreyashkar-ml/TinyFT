@@ -1,0 +1,107 @@
+# Base QLoRA Configuration for TinyFT
+# Quantized LoRA for memory-efficient training
+# Copy and modify this file for your experiments
+
+# Model Settings
+model_name: "Qwen/Qwen2.5-7B-Instruct"
+max_seq_length: 32768                    # Qwen2.5 supports up to 128K context
+use_flash_attention: true                # Enable flash attention for efficiency
+
+# Fine-tuning Method
+method: "qlora"                         
+lora_config_path: "configs/lora_config.yaml"
+
+# Quantization Settings (QLoRA specific)
+load_in_4bit: true
+bnb_4bit_compute_dtype: "bfloat16"
+bnb_4bit_use_double_quant: true
+bnb_4bit_quant_type: "nf4"
+
+# Training Hyperparameters (optimized for QLoRA)
+learning_rate: 2e-4
+batch_size: 4
+gradient_accumulation_steps: 8
+num_epochs: 3
+max_steps: null
+warmup_steps: 100
+eval_steps: 500
+
+# Optimization Settings
+optimizer: "paged_adamw_8bit"
+weight_decay: 0.01
+max_grad_norm: 0.3
+
+# Learning Rate Scheduler
+lr_scheduler_type: "cosine"
+warmup_ratio: 0.03
+
+# Mixed Precision Training
+fp16: false                           # Use FP16 (not recommended with 4-bit)
+bf16: true                            # Use BF16 (recommended for Qwen2.5)
+
+# Data Settings
+dataset_path: "yahma/alpaca-cleaned"
+instruction_column: "instruction"
+input_column: "input"
+output_column: "output"
+response_template: "### Response:"
+max_train_samples: null                   # Limit training samples (null = use all)
+max_eval_samples: 1000                    # Limit evaluation samples
+
+# Logging and Checkpointing
+output_dir: "./outputs/qwen2.5-7b-qlora"  # Output directory
+logging_steps: 10                         # Logging frequency
+save_steps: 1000                          # Save frequency
+save_total_limit: 2                       # Keep fewer checkpoints (large files)
+logging_backend: "tensorboard"            # Logging backend
+eval_strategy: "steps"                    # Evaluation strategy
+save_strategy: "steps"                    # Save strategy
+
+# Memory Optimization (QLoRA specific)
+gradient_checkpointing: true              # Enable gradient checkpointing
+dataloader_num_workers: 1                 # Minimal workers to save memory
+dataloader_pin_memory: false              # Disable pin memory to save GPU memory
+group_by_length: true                     # Group by length for efficiency
+save_only_model: true                     # Save only model to save space
+
+# Miscellaneous
+seed: 42
+remove_unused_columns: false
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+greater_is_better: false
+resume_from_checkpoint: null
+
+# Data Processing
+truncation: true
+padding: "max_length"
+
+# Evaluation
+evaluation_strategy: "steps"
+eval_accumulation_steps: null
+
+# Logging and Monitoring
+logging_dir: "./logs"
+run_name: null
+project_name: "tinyft_qlora"
+
+# Checkpointing
+save_only_model: false                    # Save only model (not optimizer/scheduler)
+
+# Hardware Settings (optimized for memory)
+group_by_length: true                     # Group by length for efficiency
+
+# Advanced Settings (QLoRA optimizations)
+report_to: []                             # Additional reporting
+
+# Early Stopping
+early_stopping_patience: 5
+early_stopping_threshold: 0.001
+
+# Chat Template
+chat_template: null
+add_special_tokens: true
+
+# Memory and Performance (QLoRA specific)
+auto_find_batch_size: true
+ddp_find_unused_parameters: false

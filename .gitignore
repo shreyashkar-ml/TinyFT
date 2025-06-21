@@ -1,0 +1,31 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+fine_tuning/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Model files and outputs (can be large)
+*.bin
+*.safetensors
+checkpoints/
+outputs/
+logs/
+
+# Temporary files
+*.tmp
+*.temp 

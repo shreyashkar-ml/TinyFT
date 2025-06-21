@@ -1,0 +1,50 @@
+# LoRA Configuration for TinyFT
+# Low-Rank Adaptation hyperparameters and settings
+
+# Basic LoRA Settings
+r: 16                           # Rank of low-rank decomposition (4, 8, 16, 32, 64)
+alpha: 32                       # Scaling factor (usually 2*r or 1*r)
+dropout: 0.1                    # Dropout probability for LoRA layers
+init_method: "kaiming"          # Weight initialization ("kaiming", "normal", "zero")
+
+# Target Modules
+target_modules: "auto"          # "auto" for auto-detection or list of module names
+# target_modules:               # Alternative: specify manually
+#   - "q_proj"
+#   - "k_proj" 
+#   - "v_proj"
+#   - "o_proj"
+
+# Advanced LoRA Settings
+bias: "none"                    # Bias handling ("none", "all", "lora_only")
+use_rslora: false               # Rank-stabilized LoRA
+use_dora: false                 # Weight-Decomposed LoRA (DoRA)
+
+# Quantization Settings (for QLoRA)
+quantization:
+  enabled: false                # Enable quantization
+  bits: 4                       # Number of bits (4 or 8)
+  compute_dtype: "float16"      # Compute data type
+  quant_type: "nf4"             # Quantization type ("nf4", "fp4")
+
+# Model-specific overrides
+# Use these to override settings for specific models
+model_overrides:
+  "llama":
+    target_modules: ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    r: 16
+    alpha: 32
+  
+  "gpt2":
+    target_modules: ["c_attn", "c_proj", "c_fc"]
+    r: 8
+    alpha: 16
+  
+  "bert":
+    target_modules: ["query", "key", "value", "dense"]
+    r: 12
+    alpha: 24
+
+# Memory Optimization
+memory_efficient: true          # Enable memory-efficient training
+gradient_checkpointing: false   # Enable gradient checkpointing 

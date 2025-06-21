@@ -1,0 +1,79 @@
+# Example Configuration: Alpaca Fine-Tuning
+# This shows how to customize base configurations for specific experiments
+
+# Model Settings
+model_name: "Qwen/Qwen2.5-7B-Instruct"  # Latest SOTA 7B model
+max_seq_length: 32768                    # Qwen2.5 supports up to 128K context
+use_flash_attention: true                # Enable flash attention
+
+# Fine-tuning Method
+method: "lora"
+lora_config_path: "configs/lora_config.yaml"
+
+# Training Hyperparameters
+learning_rate: 2e-4
+batch_size: 8
+gradient_accumulation_steps: 4
+num_epochs: 3
+warmup_steps: 100
+
+# Optimization Settings
+optimizer: "adamw"
+weight_decay: 0.01
+max_grad_norm: 1.0
+
+# Learning Rate Scheduler
+lr_scheduler_type: "cosine"
+
+# Mixed Precision Training
+fp16: false                             # Disabled for better stability
+bf16: true                              # Recommended for Qwen2.5
+
+# Data Settings - Alpaca Dataset
+dataset_path: "yahma/alpaca-cleaned"
+instruction_column: "instruction"
+input_column: "input"
+output_column: "output"
+response_template: "### Response:"       # Updated template
+max_train_samples: null                 # Use all data
+max_eval_samples: 1000
+
+# Alpaca-specific prompt formatting
+prompt_template: |
+  Below is an instruction that describes a task, paired with an input that provides further context. Write a response that appropriately completes the request.
+  
+  ### Instruction:
+  {instruction}
+  
+  ### Input:
+  {input}
+  
+  ### Response:
+
+# Logging and Checkpointing
+output_dir: "./outputs/qwen2.5-7b-alpaca"
+logging_steps: 10
+save_steps: 500
+save_total_limit: 3
+logging_backend: "tensorboard"
+eval_strategy: "steps"
+eval_steps: 500
+
+# Memory Optimization
+gradient_checkpointing: true
+dataloader_num_workers: 4
+group_by_length: true
+
+# Evaluation Settings
+load_best_model_at_end: true
+metric_for_best_model: "eval_loss"
+greater_is_better: false
+
+# Experiment Settings
+seed: 42
+run_name: "qwen2.5-7b-alpaca-lora"
+project_name: "alpaca-fine-tuning"
+
+# Advanced Settings
+remove_unused_columns: false
+resume_from_checkpoint: null 
