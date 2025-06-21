@@ -4,7 +4,7 @@
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-red.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-TinyFT is a lightweight, modular fine-tuning library designed for parameter-efficient fine-tuning of large language models. Built with simplicity and performance in mind, it provides unified APIs for LoRA, QLoRA, and full fine-tuning with minimal dependencies.
+TinyFT is a lightweight, modular fine-tuning library designed for parameter-efficient fine-tuning of large language models. Built as a minimal implementation of `peft` and `unsloth` production-grade library, it provides unified APIs for LoRA, QLoRA, and full fine-tuning with minimal dependencies.
 
 ## Key Features
 
@@ -19,15 +19,14 @@ TinyFT is a lightweight, modular fine-tuning library designed for parameter-effi
 
 ```bash
 # Install directly from GitHub
-pip install git+https://github.com/shreyashkar-ml/tinyft.git
+pip install git+https://github.com/shreyashkar-ml/TinyFT.git
 
 # Or clone and install locally
-git clone https://github.com/shreyashkar-ml/tinyft.git
+git clone https://github.com/shreyashkar-ml/TinyFT.git
 cd tinyft
 pip install -e .
 
-# This will automatically install all required dependencies including:
-# torch, transformers, datasets, accelerate, bitsandbytes, vllm, sglang, etc.
+# This will automatically install all required dependencies
 ```
 
 ## Architecture
@@ -203,32 +202,10 @@ trainer = TinyFTTrainer(
 )
 ```
 
-## Testing
+## TODO:
 
-Run the test suite:
-
-```bash
-python -m pytest tests/ -v
-```
-
-## Performance Tips
-
-1. **Memory Optimization**:
-   - Use QLoRA for 4-bit quantization
-   - Enable gradient checkpointing for large models
-   - Use gradient accumulation instead of large batch sizes
-
-2. **Training Speed**:
-   - Use mixed precision (FP16)
-   - Optimize batch size and gradient accumulation
-   - Use appropriate target modules
-
-## Supported Models
-
-TinyFT supports most transformer models including:
-- GPT-2 (with Conv1D layers)
-- LLaMA
-- And other HuggingFace transformer models
+1. Add GRPO Trainining functionality.
+2. Add custom CUDA / triton quantization solution where PyTorch native quantization API fails instead of using `FakeQuantize`.
 
 ## License
 

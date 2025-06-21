@@ -76,9 +76,9 @@ tinyft-train-pretrain = "tinyft.scripts.train_pretrain:main"
 tinyft-merge-adapters = "tinyft.scripts.merge_adapters:main"
 
 [project.urls]
-Homepage = "https://github.com/shreyashkar-ml/tinyft"
-Repository = "https://github.com/shreyashkar-ml/tinyft"
-Issues = "https://github.com/shreyashkar-ml/tinyft/issues"
+Homepage = "https://github.com/shreyashkar-ml/TinyFT"
+Repository = "https://github.com/shreyashkar-ml/TinyFT"
+Issues = "https://github.com/shreyashkar-ml/TinyFT/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
