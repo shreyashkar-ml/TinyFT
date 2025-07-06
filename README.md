@@ -202,9 +202,26 @@ trainer = TinyFTTrainer(
 )
 ```
 
+### GRPO Training
+
+```python
+from tinyft import GRPODataset, GRPOTrainer
+
+# Create dataset with rewards
+data = [
+    {"prompt": "Say hi", "response": "Hi there!", "reward": 1.0},
+    {"prompt": "Say bye", "response": "Goodbye", "reward": 0.5},
+]
+dataset = GRPODataset(data, tokenizer)
+
+# Train using GRPO
+trainer = GRPOTrainer(model=model, dataset=dataset, batch_size=2)
+trainer.train()
+```
+
 ## TODO:
 
-1. Add GRPO Trainining functionality.
+1. ~~Add GRPO Training functionality.~~ ✅ Implemented via `GRPOTrainer`.
 2. Add custom CUDA / triton quantization solution where PyTorch native quantization API fails instead of using `FakeQuantize`.
 
 ## License
