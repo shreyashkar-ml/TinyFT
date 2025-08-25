@@ -2,7 +2,7 @@ __version__ = "0.1.0"
 
 from .adapters import LoRAAdapter, QLoRAAdapter, AdapterBase
 from .manager import AdapterManager
-from .trainer import TinyFTTrainer
+from .trainer import TinyFTTrainer, TinyGRPOTrainer
 from .datasets import SFTDataset, CPTDataset, DatasetBuilder
 from .utils import setup_logging, freeze_parameters, get_model_info
 
@@ -19,6 +19,7 @@ __all__ = [
     
     # Training
     "TinyFTTrainer",
+    "TinyGRPOTrainer",
     
     # Datasets
     "SFTDataset",

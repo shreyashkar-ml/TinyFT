@@ -141,7 +141,6 @@ class LoRAAdapter(AdapterBase):
         B_device = self.B.to(x.device)
         
         # Standard LoRA computation: x @ (B @ A).T
-        # This works for both Linear and Conv1D
         x_reshaped = x.view(-1, x.size(-1))  # Flatten to 2D
         lora_delta = (B_device @ A_device).T  # (d_in, d_out)
         lora_output = self.scaling * (self.dropout(x_reshaped) @ lora_delta)
@@ -155,7 +154,6 @@ class LoRAAdapter(AdapterBase):
             return
         
         # Compute delta weight: scaling * B @ A
-        # Ensure matrices are on the same device as base layer
         A_device = self.A.to(self.base_layer.weight.device)
         B_device = self.B.to(self.base_layer.weight.device)
         delta_weight = self.scaling * (B_device @ A_device)
@@ -175,7 +173,6 @@ class LoRAAdapter(AdapterBase):
             return
         
         # Compute delta weight: scaling * B @ A
-        # Ensure matrices are on the same device as base layer
         A_device = self.A.to(self.base_layer.weight.device)
         B_device = self.B.to(self.base_layer.weight.device)
         delta_weight = self.scaling * (B_device @ A_device)
@@ -191,7 +188,6 @@ class LoRAAdapter(AdapterBase):
     
     def get_delta_weight(self) -> torch.Tensor:
         """Get the delta weight matrix (B @ A)"""
-        # Ensure matrices are on the same device
         A_device = self.A.to(self.B.device)
         return self.scaling * (self.B @ A_device)
     
@@ -275,7 +271,7 @@ class QLoRAAdapter(LoRAAdapter):
                     device=original_device
                 )
             elif self.quant_bits == 4:
-                # 4-bit quantization with proper configuration for CPU/GPU
+                # 4-bit quantization
                 # Use nf4 for CPU compatibility, fp4 for GPU
                 quant_type = "nf4" if original_device.type == "cpu" else "fp4"
                 quantized_layer = bnb.nn.Linear4bit(

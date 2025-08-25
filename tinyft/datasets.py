@@ -1,10 +1,3 @@
-"""
-Dataset utilities for TinyFT
-
-This module provides dataset wrappers and utilities for supervised fine-tuning
-and continued pre-training with automatic preprocessing and tokenization.
-"""
-
 import torch
 from torch.utils.data import Dataset, DataLoader
 from typing import Dict, List, Optional, Any, Union, Callable

@@ -74,6 +74,7 @@ examples = [
 tinyft-train-sft = "tinyft.scripts.train_sft:main"
 tinyft-train-pretrain = "tinyft.scripts.train_pretrain:main"
 tinyft-merge-adapters = "tinyft.scripts.merge_adapters:main"
+tinyft-train-grpo = "tinyft.scripts.train_grpo:main"
 
 [project.urls]
 Homepage = "https://github.com/shreyashkar-ml/TinyFT"

@@ -1,11 +1,3 @@
-#!/usr/bin/env python3
-"""
-Adapter Merging Script
-
-This script merges LoRA/QLoRA adapters into the base model weights
-and saves the resulting full model.
-"""
-
 import argparse
 import sys
 import os

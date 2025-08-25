@@ -1,10 +1,3 @@
-"""
-Adapter Manager for TinyFT
-
-This module provides high-level adapter lifecycle management including
-loading, applying, merging, and saving adapters across different model types.
-"""
-
 import torch
 import torch.nn as nn
 from typing import List, Optional, Dict, Any, Union, Tuple

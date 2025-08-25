@@ -9,7 +9,7 @@ TinyFT is a lightweight, modular fine-tuning library designed for parameter-effi
 ## Key Features
 
 - **Parameter-Efficient Fine-Tuning**: LoRA and QLoRA implementations with automatic target module detection
-- **Unified Training Interface**: Single API for supervised fine-tuning (SFT) and continued pre-training (CPT)
+- **Unified Training Interface**: Single API for supervised fine-tuning (SFT), continued pre-training (CPT), and GRPO (RL)
 - **Multiple Logging Backends**: TensorBoard and Weights & Biases support
 - **Memory Optimization**: Gradient checkpointing, mixed precision, and quantization support
 - **High-Performance Inference**: vLLM and SGLang integration for multi-adapter serving
@@ -119,7 +119,65 @@ python -m tinyft.scripts.train_pretrain --config configs/base_lora_cpt.yaml
 
 # Merge adapters
 python -m tinyft.scripts.merge_adapters --adapter_path ./outputs --output_path ./merged_model
+
+# GRPO training
+python -m tinyft.scripts.train_grpo --config configs/grpo_example.yaml
+## Or as an installed CLI
+tinyft-train-grpo --config configs/grpo_example.yaml
 ```
+
+## GRPO Training
+
+TinyFT includes a lightweight Group Relative Policy Optimization (GRPO) trainer for RL-style preference/reward optimization without heavy dependencies.
+
+Example usage:
+
+```python
+from tinyft import TinyGRPOTrainer
+from transformers import AutoModelForCausalLM, AutoTokenizer
+
+# Load a small causal LM (or your fine-tuned one)
+model = AutoModelForCausalLM.from_pretrained("sshleifer/tiny-gpt2")
+tokenizer = AutoTokenizer.from_pretrained("sshleifer/tiny-gpt2")
+
+# Define prompts and a reward function
+prompts = [
+    {"prompt": "Write a friendly greeting."},
+    {"prompt": "Explain GRPO in one sentence."},
+]
+
+def reward_fn(response: str, prompt: str, context: dict):
+    # Example: reward longer and polite responses
+    score = 0.0
+    score += 0.1 * min(len(response.split()), 50)
+    if any(w in response.lower() for w in ["please", "thank", "kind"]):
+        score += 1.0
+    return {"reward": score}
+
+trainer = TinyGRPOTrainer(
+    model=model,
+    tokenizer=tokenizer,
+    prompts=prompts,
+    reward_fn=reward_fn,
+    max_gen_len=64,
+    num_questions_per_batch=2,
+    num_answers_per_question=2,
+    total_steps=100,
+    fp16=False,  # set True if running on GPU
+    bf16=True,
+    output_dir="./outputs/grpo_run",
+)
+
+trainer.train()
+```
+
+Notes:
+- The trainer computes token-wise advantages per group of answers and performs a single policy update per sampling iteration.
+- Provide your own reward function for your task; return either a float or `{ "reward": float, "reward_info": {...} }`.
+- For a minimal runnable example without external downloads, see `tests/run_grpo_example.py`.
+- Use the CLI with `tinyft-train-grpo --config <yaml>` for YAML-driven runs; see `configs/grpo_example.yaml`.
+
+**TODO (future improvement)**: Refactor TinyGRPOTrainer sampling/generation into a pluggable interface so it works seamlessly with any model’s generation API (beyond plain forward logits), while keeping current behavior stable.
 
 ### Multi-Adapter Inference
 
@@ -204,8 +262,7 @@ trainer = TinyFTTrainer(
 
 ## TODO:
 
-1. Add GRPO Trainining functionality.
-2. Add custom CUDA / triton quantization solution where PyTorch native quantization API fails instead of using `FakeQuantize`.
+1. Add custom CUDA / triton quantization solution where PyTorch native quantization API fails instead of using `FakeQuantize`.
 
 ## License
 

@@ -1,0 +1,42 @@
+model:
+  model_name: "sshleifer/tiny-gpt2"
+  tokenizer_name: null  # Will default to model_name if null
+
+data:
+  # Either provide prompts inline or via a file path
+  prompts:
+    - { prompt: "Write a friendly greeting." }
+    - { prompt: "Explain GRPO in one sentence." }
+  # prompts_path: "data/prompts.jsonl"  # Optional alternative
+
+reward:
+  type: "keyword"  # or "module" with reward.path: "my.module:my_reward"
+  keywords: ["please", "thank", "kind"]
+  length_bonus_per_word: 0.05
+  max_words: 50
+
+training:
+  max_gen_len: 64
+  num_questions_per_batch: 2
+  num_answers_per_question: 2
+  total_steps: 50
+  micro_batch_size: 4
+  learning_rate: 1e-5
+  weight_decay: 0.0
+  adam_betas: [0.9, 0.999]
+  adam_eps: 1e-8
+  max_grad_norm: 1.0
+  fp16: false
+  bf16: true
+  temperature: 1.0
+  top_k: 0
+  top_p: 1.0
+
+logging:
+  backend: "tensorboard"
+  output_dir: "./outputs/grpo_example"
+  run_name: null
+  logging_steps: 10
+
+seed: 42
+

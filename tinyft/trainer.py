@@ -14,8 +14,9 @@ from pathlib import Path
 from tqdm import tqdm
 
 from .utils import (
-    setup_logging, create_progress_format, save_checkpoint, 
-    load_checkpoint, get_device, MemoryTracker, format_time, format_number
+    setup_logging, create_progress_format, save_checkpoint,
+    load_checkpoint, get_device, MemoryTracker, format_time, format_number,
+    set_seed,
 )
 from .datasets import SFTDataset, CPTDataset, DatasetBuilder
 
@@ -547,3 +548,467 @@ class TinyFTTrainer:
             "device": str(self.device),
             "memory_usage_mb": self.memory_tracker.peak_memory
         } 
+
+
+class TinyGRPOTrainer:
+    """
+    Minimal Group Relative Policy Optimization (GRPO) trainer compatible with TinyFT.
+
+    This trainer implements a simple, dependency-light GRPO loop:
+    - Samples multiple responses per prompt.
+    - Computes per-group normalized advantages.
+    - Applies a token-wise policy gradient objective over generated tokens.
+
+    Notes:
+    - Expects an autoregressive causal LM (`nn.Module`) with a forward method
+      that accepts `input_ids` and returns logits (`FloatTensor [B, T, V]`).
+    - A Hugging Face tokenizer-like object is required with attributes
+      `eos_token_id`, `pad_token_id` and a callable interface returning
+      `{"input_ids": LongTensor}` when invoked on a list of strings.
+    - The reward function should accept: `(response: str, prompt: str, context: Dict[str, Any])`
+      and return either a float or `{ "reward": float, "reward_info": Dict[str, float] }`.
+    """
+
+    def __init__(
+        self,
+        model: nn.Module,
+        tokenizer: Any,
+        prompts: List[Union[str, Dict[str, Any]]],
+        reward_fn: Callable[[str, str, Dict[str, Any]], Union[float, Dict[str, Any]]],
+        *,
+        # Sampling
+        max_gen_len: int = 64,
+        num_questions_per_batch: int = 4,
+        num_answers_per_question: int = 2,
+        temperature: float = 1.0,
+        top_k: int = 0,
+        top_p: float = 1.0,
+        # Optimization
+        learning_rate: float = 1e-5,
+        weight_decay: float = 0.0,
+        adam_betas: tuple = (0.9, 0.999),
+        adam_eps: float = 1e-8,
+        max_grad_norm: float = 1.0,
+        micro_batch_size: int = 8,
+        total_steps: int = 100,
+        # Mixed precision
+        fp16: bool = False,
+        bf16: bool = True,
+        # Logging
+        logging_backend: str = "tensorboard",
+        logging_steps: int = 10,
+        output_dir: str = "./outputs",
+        run_name: Optional[str] = None,
+        # Misc
+        seed: int = 42,
+    ) -> None:
+        self.model = model
+        self.tokenizer = tokenizer
+        self.prompts = prompts
+        self.reward_fn = reward_fn
+
+        self.max_gen_len = max_gen_len
+        self.num_questions_per_batch = max(1, num_questions_per_batch)
+        self.num_answers_per_question = max(1, num_answers_per_question)
+        self.temperature = max(1e-8, float(temperature))
+        self.top_k = int(top_k)
+        self.top_p = float(top_p)
+
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+        self.adam_betas = adam_betas
+        self.adam_eps = adam_eps
+        self.max_grad_norm = max_grad_norm
+        self.micro_batch_size = max(1, micro_batch_size)
+        self.total_steps = total_steps
+
+        self.fp16 = fp16
+        self.bf16 = bf16
+
+        self.logging_backend = logging_backend
+        self.logging_steps = logging_steps
+        self.output_dir = Path(output_dir)
+        self.run_name = run_name
+
+        self.device = get_device(prefer_cuda=True)
+        self.model = self.model.to(self.device)
+        self.model.train()
+
+        set_seed(seed)
+
+        self.loggers = setup_logging(
+            backend=self.logging_backend,
+            project_name="tinyft_grpo",
+            run_name=self.run_name,
+            log_dir=str(self.output_dir / "logs"),
+        )
+
+        self.global_step = 0
+        self.memory_tracker = MemoryTracker(self.device)
+        self.scaler = None
+        if self.fp16:
+            self.scaler = torch.amp.GradScaler("cuda")
+
+        # Basic AdamW optimizer
+        self.optimizer = AdamW(
+            [p for p in self.model.parameters() if p.requires_grad],
+            lr=self.learning_rate,
+            betas=self.adam_betas,
+            eps=self.adam_eps,
+            weight_decay=self.weight_decay,
+        )
+
+        # Cache common token ids
+        self.pad_token_id = getattr(self.tokenizer, "pad_token_id", 0)
+        self.eos_token_id = getattr(self.tokenizer, "eos_token_id", None)
+
+
+    def train(self) -> Dict[str, Any]:
+        """Run GRPO training over `total_steps` sampling updates."""
+        metrics: Dict[str, Any] = {}
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+        # Build simple dataloader over prompts
+        # Each item may be a str or a dict with keys: 'prompt' and optional context
+        prompt_items = self.prompts
+
+        step_pbar = tqdm(range(self.total_steps), desc="GRPO Steps", position=0)
+        for _ in step_pbar:
+            batch_prompts, batch_context = self._sample_batch(prompt_items)
+
+            # Rollout multiple answers per prompt
+            episodes = self._rollout(batch_prompts, batch_context)
+
+            # Update policy using token-wise policy gradient
+            step_metrics = self._update_policy(episodes)
+
+            self.global_step += 1
+            metrics = {**step_metrics}
+
+            # Logging
+            if self.global_step % self.logging_steps == 0:
+                self._log_metrics(metrics, self.global_step)
+
+            # Progress bar
+            cur_mem = self.memory_tracker.update()
+            step_pbar.set_postfix({
+                "loss": f"{metrics.get('loss', 0.0):.4f}",
+                "entropy": f"{metrics.get('entropy', 0.0):.3f}",
+                "mem": f"{cur_mem:.0f}MB",
+            })
+
+        # Save final model checkpoint
+        self.save_checkpoint("grpo_final_model")
+        return metrics
+
+    def save_checkpoint(self, checkpoint_name: str) -> None:
+        save_checkpoint(
+            model=self.model,
+            optimizer=self.optimizer,
+            epoch=0,
+            step=self.global_step,
+            loss=0.0,
+            save_path=self.output_dir / f"{checkpoint_name}.pt",
+            metadata={"trainer": "TinyGRPOTrainer"},
+        )
+
+    def _log_metrics(self, metrics: Dict[str, Any], step: int):
+        """Log metrics to configured backends"""
+        # TensorBoard logging
+        if hasattr(self, 'tb_logger') and self.tb_logger is not None:
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    self.tb_logger.add_scalar(key, value, step)
+        
+        # Basic console logging for missing metrics
+        if step % self.logging_steps == 0:
+            metrics_str = ", ".join([f"{k}={v:.4f}" if isinstance(v, float) else f"{k}={v}" 
+                                   for k, v in metrics.items()])
+            print(f"Step {step}: {metrics_str}")
+
+    # ----------------------- Core algorithm ----------------------
+    def _sample_batch(
+        self, items: List[Union[str, Dict[str, Any]]]
+    ) -> tuple[List[str], List[Dict[str, Any]]]:
+        """Randomly sample a batch of prompts and their contexts."""
+        import random
+
+        batch_prompts: List[str] = []
+        batch_context: List[Dict[str, Any]] = []
+        for _ in range(self.num_questions_per_batch):
+            entry = random.choice(items)
+            if isinstance(entry, str):
+                batch_prompts.append(entry)
+                batch_context.append({})
+            else:
+                prompt = entry.get("prompt") or entry.get("question") or entry.get("text")
+                if prompt is None:
+                    raise ValueError("Prompt dict must include a 'prompt' key")
+                ctx = {k: v for k, v in entry.items() if k not in {"prompt", "question", "text"}}
+                batch_prompts.append(prompt)
+                batch_context.append(ctx)
+        return batch_prompts, batch_context
+
+    @torch.no_grad()
+    def _rollout(self, prompts: List[str], context: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Generate multiple responses per prompt and compute rewards.
+
+        Returns a list of episode dicts with fields:
+        - 'prompt': str
+        - 'prompt_ids': List[int]
+        - 'generated_ids': List[int]
+        - 'is_finished': bool
+        - 'reward': float
+        - 'reward_info': Dict[str, float]
+        - 'context': Dict[str, Any]
+        """
+        # Tokenize prompts (list[str] -> tensor[Q, T])
+        encoded = self._encode_prompts(prompts)
+        prefix_ids_list: List[List[int]] = [ids.tolist() for ids in encoded]
+
+        # Build batch of size Q * M
+        Q = len(prompts)
+        M = self.num_answers_per_question
+        bsz = Q * M
+        min_prompt_len = min(len(t) for t in prefix_ids_list)
+        max_prompt_len = max(len(t) for t in prefix_ids_list)
+        total_len = max_prompt_len + self.max_gen_len
+
+        tokens = torch.full(
+            (bsz, total_len),
+            fill_value=self.pad_token_id,
+            dtype=torch.long,
+            device=self.device,
+        )
+        for k, t in enumerate(prefix_ids_list):
+            offset = k * M
+            for i in range(M):
+                tokens[offset + i, : len(t)] = torch.tensor(t, dtype=torch.long, device=self.device)
+
+        input_text_mask = tokens != self.pad_token_id
+        is_finished = torch.zeros((bsz,), dtype=torch.bool, device=self.device)
+
+        prev_pos = 0
+        for cur_pos in range(min_prompt_len, total_len):
+            # Compute logits; naive full-prefix forward to keep dependencies minimal
+            logits = self._model_logits(tokens[:, prev_pos:cur_pos])
+            logits_last = logits[:, -1, :]
+            next_token = self._sample_from_logits(logits_last)
+            # Keep prompt tokens unchanged
+            next_token = torch.where(input_text_mask[:, cur_pos], tokens[:, cur_pos], next_token)
+            # Respect EOS; fill pad after finished
+            if self.eos_token_id is not None:
+                is_end = next_token == int(self.eos_token_id)
+                is_generated = ~input_text_mask[:, cur_pos]
+                is_finished = is_finished | (is_end & is_generated)
+                next_token = torch.where(is_finished, torch.tensor(self.pad_token_id, device=self.device), next_token)
+            tokens[:, cur_pos] = next_token
+            prev_pos = cur_pos
+            if bool(is_finished.all().item()):
+                break
+
+        # Build episodes
+        episodes: List[Dict[str, Any]] = []
+        tokens_list = tokens.tolist()
+        pad_id = int(self.pad_token_id)
+        for i in range(Q):
+            for j in range(M):
+                idx = i * M + j
+                prompt_ids = prefix_ids_list[i]
+                gen_ids = tokens_list[idx][len(prompt_ids) :]
+                if pad_id in gen_ids:
+                    gen_ids = gen_ids[: gen_ids.index(pad_id)]
+                response_text = self._decode_ids(gen_ids)
+                # Reward
+                r = self.reward_fn(response_text, prompts[i], context[i])
+                if isinstance(r, dict):
+                    reward = float(r.get("reward", 0.0))
+                    reward_info = {"reward": reward, **{k: float(v) for k, v in r.get("reward_info", {}).items()}}
+                else:
+                    reward = float(r)
+                    reward_info = {"reward": reward}
+                episodes.append(
+                    {
+                        "prompt": prompts[i],
+                        "prompt_ids": prompt_ids,
+                        "generated_ids": gen_ids,
+                        "is_finished": bool(is_finished[idx].item()),
+                        "reward": reward,
+                        "reward_info": reward_info,
+                        "context": context[i],
+                    }
+                )
+        # Normalize reward per group (by prompt)
+        episodes = self._normalize_rewards_per_group(episodes)
+        return episodes
+
+    def _update_policy(self, episodes: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Compute token-wise policy gradient and update the policy once."""
+        # Sort by total length for efficiency
+        episodes_sorted = sorted(episodes, key=lambda e: len(e["prompt_ids"]) + len(e["generated_ids"]))
+        num_target_tokens = sum(len(e["generated_ids"]) for e in episodes_sorted)
+        if num_target_tokens == 0:
+            return {"loss": 0.0, "grad_norm": 0.0, "entropy": 0.0}
+
+        total_entropy = 0.0
+        losses: List[torch.Tensor] = []
+
+        for i in range(0, len(episodes_sorted), self.micro_batch_size):
+            batch = episodes_sorted[i : i + self.micro_batch_size]
+            batch_lengths = [len(e["prompt_ids"]) + len(e["generated_ids"]) for e in batch]
+            max_len = max(batch_lengths)
+
+            # Build token ids and masks
+            token_ids = []
+            masks = []
+            advantages = []
+            for k, e in enumerate(batch):
+                seq = e["prompt_ids"] + e["generated_ids"]
+                pad_n = max_len - len(seq)
+                token_ids.append(seq + [self.pad_token_id] * pad_n)
+                mask = [0] * len(e["prompt_ids"]) + [1] * len(e["generated_ids"]) + [0] * (pad_n)
+                masks.append(mask)
+                advantages.append(float(e["reward"]))
+
+            token_ids_t = torch.tensor(token_ids, device=self.device, dtype=torch.long)
+            masks_t = torch.tensor(masks, device=self.device, dtype=torch.bool)
+            adv_t = torch.tensor(advantages, device=self.device, dtype=torch.float32)
+
+            input_ids = token_ids_t[:, :-1]
+            target_ids = token_ids_t[:, 1:]
+            target_masks = masks_t[:, 1:]
+
+            logits = self._model_logits(input_ids).float()
+
+            # Compute per-token log-probabilities
+            log_probs = -torch.nn.functional.cross_entropy(
+                logits.reshape(-1, logits.size(-1)),
+                target_ids.reshape(-1),
+                ignore_index=self.pad_token_id,
+                reduction="none",
+            ).reshape(input_ids.shape[0], -1)
+
+            # Entropy for logging
+            with torch.no_grad():
+                probs = torch.softmax(logits, dim=-1)
+                token_entropy = torch.logsumexp(logits, dim=-1) - torch.sum(probs * logits, dim=-1)
+                total_entropy += float((token_entropy * target_masks).sum().item())
+
+            # Policy gradient objective per token
+            obj = log_probs * adv_t[:, None]
+            obj = (obj * target_masks).sum() / max(1, num_target_tokens)
+            loss = -obj
+
+            if self.fp16 and self.scaler is not None:
+                self.scaler.scale(loss).backward()
+            else:
+                loss.backward()
+
+            losses.append(loss.detach())
+
+        # Optimizer step (single step for the whole episodes set)
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        if self.fp16 and self.scaler is not None:
+            self.scaler.step(self.optimizer)
+            self.scaler.update()
+        else:
+            self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
+
+        mean_loss = torch.stack([l if torch.is_tensor(l) else torch.tensor(l) for l in losses]).mean().item() if losses else 0.0
+        return {
+            "loss": float(mean_loss),
+            "grad_norm": float(grad_norm.item() if isinstance(grad_norm, torch.Tensor) else grad_norm),
+            "entropy": float(total_entropy / max(1, num_target_tokens)),
+        }
+
+    # --------------------------- Helpers -------------------------
+    def _encode_prompts(self, prompts: List[str]) -> List[torch.Tensor]:
+        # Support HF tokenizers that accept batch encoding
+        encoded = self.tokenizer(
+            prompts,
+            add_special_tokens=False,
+            padding=False,
+            truncation=False,
+            return_tensors=None,
+        )
+        # HF returns dict-like object (BatchEncoding) with 'input_ids'; custom may return list[list[int]]
+        input_ids = None
+        if isinstance(encoded, dict) or hasattr(encoded, "get"):
+            input_ids = encoded.get("input_ids")
+            if isinstance(input_ids, torch.Tensor):
+                return [row for row in input_ids]
+            elif isinstance(input_ids, list):
+                return [torch.tensor(row, dtype=torch.long, device=self.device) for row in input_ids]
+        # Fallback: assume encoded is list[list[int]]
+        assert isinstance(encoded, list)
+        return [torch.tensor(row, dtype=torch.long, device=self.device) for row in encoded]
+
+    def _decode_ids(self, ids: List[int]) -> str:
+        # Try HF decode
+        if hasattr(self.tokenizer, "decode"):
+            try:
+                return self.tokenizer.decode(ids, skip_special_tokens=True)
+            except TypeError:
+                return self.tokenizer.decode(ids)
+        # Fallback: naive join
+        return " ".join(str(i) for i in ids)
+
+    def _model_logits(self, token_ids: torch.Tensor) -> torch.Tensor:
+        # Expect model to return either logits directly or an object with .logits
+        outputs = self.model(input_ids=token_ids)
+        if isinstance(outputs, torch.Tensor):
+            return outputs
+        logits = getattr(outputs, "logits", None)
+        if logits is None:
+            raise RuntimeError("Model forward must return logits or object with .logits")
+        return logits
+
+    def _sample_from_logits(self, logits: torch.Tensor) -> torch.Tensor:
+        # Temperature scaling
+        scaled = logits / self.temperature
+
+        # Top-k
+        if self.top_k and self.top_k > 0:
+            v, ix = torch.topk(scaled, self.top_k)
+            mask = torch.full_like(scaled, float("-inf"))
+            mask.scatter_(1, ix, v)
+            scaled = mask
+
+        # Top-p nucleus sampling
+        if self.top_p < 1.0:
+            sorted_logits, sorted_indices = torch.sort(scaled, descending=True)
+            probs = torch.softmax(sorted_logits, dim=-1)
+            cumulative = torch.cumsum(probs, dim=-1)
+            mask = cumulative > self.top_p
+            mask[..., 1:] = mask[..., :-1].clone()
+            mask[..., 0] = False
+            sorted_logits[mask] = float("-inf")
+            # Unsort
+            unsorted = torch.full_like(scaled, float("-inf"))
+            unsorted.scatter_(1, sorted_indices, sorted_logits)
+            scaled = unsorted
+
+        probs = torch.softmax(scaled, dim=-1)
+        next_token = torch.multinomial(probs, num_samples=1).squeeze(-1)
+        return next_token
+
+    @staticmethod
+    def _normalize_rewards_per_group(episodes: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        # Group by identical prompt string
+        from collections import defaultdict
+
+        grouped: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for e in episodes:
+            grouped[e["prompt"]].append(e)
+
+        normed: List[Dict[str, Any]] = []
+        for group in grouped.values():
+            rewards = torch.tensor([float(e["reward"]) for e in group], dtype=torch.float32)
+            mean = float(rewards.mean().item())
+            std = float(rewards.std(unbiased=False).item())
+            denom = std + 1e-4
+            for e in group:
+                e = {**e, "reward": (float(e["reward"]) - mean) / denom}
+                normed.append(e)
+        return normed

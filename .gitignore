@@ -28,4 +28,7 @@ logs/
 
 # Temporary files
 *.tmp
-*.temp 
+*.temp
+AGENTS.md
+*.txt
+qwen3_4b_grpo.py

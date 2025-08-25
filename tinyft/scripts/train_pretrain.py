@@ -1,10 +1,3 @@
-"""
-Continued Pre-Training (CPT) Entry Point
-
-This script provides a command-line interface for continued pre-training
-of language models using TinyFT library with YAML-first configuration.
-"""
-
 import argparse
 import sys
 import os
