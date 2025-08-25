@@ -899,10 +899,11 @@ class TinyGRPOTrainer:
         input_text_mask = tokens != self.pad_token_id
         is_finished = torch.zeros((bsz,), dtype=torch.bool, device=self.device)
 
-        prev_pos = 0
+        # Note: We run with use_cache=False during training to reduce memory,
+        # so we must pass the full prefix up to cur_pos on each step to preserve context.
         for cur_pos in range(min_prompt_len, total_len):
-            # Compute logits; naive full-prefix forward to keep dependencies minimal
-            logits = self._model_logits(tokens[:, prev_pos:cur_pos])
+            # Compute logits over the full prefix (no KV cache in training path)
+            logits = self._model_logits(tokens[:, :cur_pos])
             logits_last = logits[:, -1, :]
             next_token = self._sample_from_logits(logits_last)
             # Keep prompt tokens unchanged
@@ -914,7 +915,6 @@ class TinyGRPOTrainer:
                 is_finished = is_finished | (is_end & is_generated)
                 next_token = torch.where(is_finished, torch.tensor(self.pad_token_id, device=self.device), next_token)
             tokens[:, cur_pos] = next_token
-            prev_pos = cur_pos
             if bool(is_finished.all().item()):
                 break
 
