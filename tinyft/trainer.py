@@ -762,8 +762,55 @@ class TinyGRPOTrainer:
         - 'reward_info': Dict[str, float]
         - 'context': Dict[str, Any]
         """
-        # Tokenize prompts (list[str] -> tensor[Q, T])
-        encoded = self._encode_prompts(prompts)
+        # Normalize prompts to plain text (handle chat/message formats)
+        def _prompt_to_text(p: Any) -> str:
+            # Already a string
+            if isinstance(p, str):
+                return p
+
+            # Dictionary forms
+            if isinstance(p, dict):
+                # Common textual fields
+                for key in ("prompt", "question", "text", "input"):
+                    if key in p:
+                        return _prompt_to_text(p[key])
+                # Chat messages under 'messages'
+                if "messages" in p:
+                    msgs = p["messages"]
+                    if hasattr(self.tokenizer, "apply_chat_template"):
+                        return self.tokenizer.apply_chat_template(
+                            msgs, tokenize=False, add_generation_prompt=True
+                        )
+                    # Fallback: join message contents
+                    return "\n".join(
+                        (m.get("content", "") if isinstance(m, dict) else str(m))
+                        for m in msgs
+                    )
+                # Fallback
+                return str(p)
+
+            # List/Tuple forms (possible chat list[{role, content}] or list[str])
+            if isinstance(p, (list, tuple)):
+                if p and isinstance(p[0], dict) and "content" in p[0]:
+                    if hasattr(self.tokenizer, "apply_chat_template"):
+                        return self.tokenizer.apply_chat_template(
+                            p, tokenize=False, add_generation_prompt=True
+                        )
+                    return "\n".join(
+                        (m.get("content", "") if isinstance(m, dict) else str(m))  # type: ignore
+                        for m in p
+                    )
+                if all(isinstance(x, str) for x in p):
+                    return " ".join(p)  # type: ignore[arg-type]
+                return str(p)
+
+            # Anything else
+            return str(p)
+
+        prompt_texts: List[str] = [_prompt_to_text(p) for p in prompts]
+
+        # Tokenize prompts (list[str] -> list[tensor])
+        encoded = self._encode_prompts(prompt_texts)
         prefix_ids_list: List[List[int]] = [ids.tolist() for ids in encoded]
 
         # Build batch of size Q * M
@@ -820,7 +867,7 @@ class TinyGRPOTrainer:
                     gen_ids = gen_ids[: gen_ids.index(pad_id)]
                 response_text = self._decode_ids(gen_ids)
                 # Reward
-                r = self.reward_fn(response_text, prompts[i], context[i])
+                r = self.reward_fn(response_text, prompt_texts[i], context[i])
                 if isinstance(r, dict):
                     reward = float(r.get("reward", 0.0))
                     reward_info = {"reward": reward, **{k: float(v) for k, v in r.get("reward_info", {}).items()}}
@@ -829,7 +876,7 @@ class TinyGRPOTrainer:
                     reward_info = {"reward": reward}
                 episodes.append(
                     {
-                        "prompt": prompts[i],
+                        "prompt": prompt_texts[i],
                         "prompt_ids": prompt_ids,
                         "generated_ids": gen_ids,
                         "is_finished": bool(is_finished[idx].item()),

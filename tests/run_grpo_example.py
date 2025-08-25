@@ -293,7 +293,7 @@ def run_sft_pretraining(model, tokenizer):
     print("Starting SFT pre-training...")
     sft_trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class=tokenizer,
         train_dataset=sft_dataset,
         args=SFTConfig(
             dataset_text_field="text",
