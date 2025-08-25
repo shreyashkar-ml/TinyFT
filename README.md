@@ -46,6 +46,7 @@ tinyft/
 └── scripts/              # Command-line scripts
     ├── train_sft.py      # Supervised fine-tuning entry point
     ├── train_pretrain.py # Continued pre-training entry point
+    └── train_grpo.py     # GRPO training entry point
     └── merge_adapters.py # Merge adapters into base model
 configs/
 ├── base_lora.yaml        # LoRA configuration example
