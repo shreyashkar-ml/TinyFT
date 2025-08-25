@@ -168,13 +168,24 @@ class TinyFTTrainer:
         trainable_params = [p for p in self.model.parameters() if p.requires_grad]
         
         if self.optimizer_type.lower() == "adamw":
-            optimizer = AdamW(
-                trainable_params,
-                lr=self.learning_rate,
-                betas=(self.adam_beta1, self.adam_beta2),
-                eps=self.adam_epsilon,
-                weight_decay=self.weight_decay
-            )
+            # Prefer foreach=False to avoid large fused allocations when VRAM is fragmented
+            try:
+                optimizer = AdamW(
+                    trainable_params,
+                    lr=self.learning_rate,
+                    betas=(self.adam_beta1, self.adam_beta2),
+                    eps=self.adam_epsilon,
+                    weight_decay=self.weight_decay,
+                    foreach=False,
+                )
+            except TypeError:
+                optimizer = AdamW(
+                    trainable_params,
+                    lr=self.learning_rate,
+                    betas=(self.adam_beta1, self.adam_beta2),
+                    eps=self.adam_epsilon,
+                    weight_decay=self.weight_decay,
+                )
         elif self.optimizer_type.lower() == "sgd":
             optimizer = SGD(
                 trainable_params,
@@ -632,6 +643,24 @@ class TinyGRPOTrainer:
 
         self.device = get_device(prefer_cuda=True)
         self.model = self.model.to(self.device)
+        # Disable KV cache during training to reduce memory
+        try:
+            if hasattr(self.model, "config"):
+                self.model.config.use_cache = False  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        # Allow TF32 on Ampere+ for better perf/memory tradeoff
+        try:
+            torch.backends.cuda.matmul.allow_tf32 = True  # type: ignore[attr-defined]
+            torch.backends.cudnn.allow_tf32 = True  # type: ignore[attr-defined]
+        except Exception:
+            pass
+        # Enable gradient checkpointing if the model supports it
+        if hasattr(self.model, "gradient_checkpointing_enable"):
+            try:
+                self.model.gradient_checkpointing_enable()
+            except Exception:
+                pass
         self.model.train()
 
         set_seed(seed)
@@ -649,14 +678,44 @@ class TinyGRPOTrainer:
         if self.fp16:
             self.scaler = torch.amp.GradScaler("cuda")
 
-        # Basic AdamW optimizer
-        self.optimizer = AdamW(
-            [p for p in self.model.parameters() if p.requires_grad],
-            lr=self.learning_rate,
-            betas=self.adam_betas,
-            eps=self.adam_eps,
-            weight_decay=self.weight_decay,
-        )
+        # Prefer memory-efficient optimizers if available
+        params = [p for p in self.model.parameters() if p.requires_grad]
+        try:
+            import bitsandbytes as bnb  # type: ignore
+            if hasattr(bnb.optim, "PagedAdamW8bit"):
+                self.optimizer = bnb.optim.PagedAdamW8bit(
+                    params,
+                    lr=self.learning_rate,
+                    betas=self.adam_betas,
+                    eps=self.adam_eps,
+                    weight_decay=self.weight_decay,
+                )
+            else:
+                self.optimizer = bnb.optim.Adam8bit(
+                    params,
+                    lr=self.learning_rate,
+                    betas=self.adam_betas,
+                    eps=self.adam_eps,
+                    weight_decay=self.weight_decay,
+                )
+        except Exception:
+            try:
+                self.optimizer = AdamW(
+                    params,
+                    lr=self.learning_rate,
+                    betas=self.adam_betas,
+                    eps=self.adam_eps,
+                    weight_decay=self.weight_decay,
+                    foreach=False,
+                )
+            except TypeError:
+                self.optimizer = AdamW(
+                    params,
+                    lr=self.learning_rate,
+                    betas=self.adam_betas,
+                    eps=self.adam_eps,
+                    weight_decay=self.weight_decay,
+                )
 
         # Cache common token ids
         self.pad_token_id = getattr(self.tokenizer, "pad_token_id", 0)
@@ -678,6 +737,11 @@ class TinyGRPOTrainer:
 
             # Rollout multiple answers per prompt
             episodes = self._rollout(batch_prompts, batch_context)
+            # Free any generation-time cached memory before backward
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
 
             # Update policy using token-wise policy gradient
             step_metrics = self._update_policy(episodes)
@@ -887,6 +951,15 @@ class TinyGRPOTrainer:
                 )
         # Normalize reward per group (by prompt)
         episodes = self._normalize_rewards_per_group(episodes)
+        # Aggressively free temporary GPU tensors to reduce fragmentation
+        try:
+            del tokens, logits, logits_last, next_token, input_text_mask, is_finished  # type: ignore[name-defined]
+        except Exception:
+            pass
+        try:
+            torch.cuda.empty_cache()
+        except Exception:
+            pass
         return episodes
 
     def _update_policy(self, episodes: List[Dict[str, Any]]) -> Dict[str, float]:
@@ -925,7 +998,13 @@ class TinyGRPOTrainer:
             target_ids = token_ids_t[:, 1:]
             target_masks = masks_t[:, 1:]
 
-            logits = self._model_logits(input_ids).float()
+            # Forward with autocast to reduce activation memory
+            if self.fp16 or self.bf16:
+                autocast_dtype = torch.float16 if (self.fp16 and torch.cuda.is_available()) else torch.bfloat16
+                with torch.autocast("cuda", dtype=autocast_dtype):
+                    logits = self._model_logits(input_ids)
+            else:
+                logits = self._model_logits(input_ids)
 
             # Compute per-token log-probabilities
             log_probs = -torch.nn.functional.cross_entropy(
@@ -1003,7 +1082,11 @@ class TinyGRPOTrainer:
 
     def _model_logits(self, token_ids: torch.Tensor) -> torch.Tensor:
         # Expect model to return either logits directly or an object with .logits
-        outputs = self.model(input_ids=token_ids)
+        # Avoid building KV cache to reduce memory
+        try:
+            outputs = self.model(input_ids=token_ids, use_cache=False)  # type: ignore[call-arg]
+        except TypeError:
+            outputs = self.model(input_ids=token_ids)
         if isinstance(outputs, torch.Tensor):
             return outputs
         logits = getattr(outputs, "logits", None)

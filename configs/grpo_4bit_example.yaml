@@ -1,0 +1,57 @@
+model:
+  model_name: "Qwen/Qwen2.5-3B"
+  tokenizer_name: null
+  # Use 4-bit loading with bitsandbytes (if installed)
+  quantization:
+    load_in_4bit: true
+    bnb_4bit_quant_type: "nf4"
+    bnb_4bit_use_double_quant: true
+    bnb_4bit_compute_dtype: "bfloat16"
+  # Enable FlashAttention2 if supported by the model build
+  attn_implementation: "flash_attention_2"
+  # Let HF shard weights across available GPUs (or single GPU)
+  device_map: "auto"
+  # Optional: favor bfloat16 math on Ampere+
+  torch_dtype: "bfloat16"
+  # Training-friendly settings
+  use_cache: false
+  gradient_checkpointing: true
+
+data:
+  # Provide prompts inline or via a file path
+  prompts:
+    - { prompt: "Summarize GRPO in two sentences." }
+    - { prompt: "Explain why group-normalized rewards help." }
+  # prompts_path: "data/prompts.jsonl"
+
+reward:
+  type: "keyword"
+  keywords: ["group", "reward", "advantage"]
+  length_bonus_per_word: 0.05
+  max_words: 64
+
+training:
+  max_gen_len: 256
+  num_questions_per_batch: 4
+  num_answers_per_question: 1
+  micro_batch_size: 2
+  total_steps: 100
+  learning_rate: 1e-5
+  weight_decay: 0.0
+  adam_betas: [0.9, 0.999]
+  adam_eps: 1e-8
+  max_grad_norm: 0.5
+  fp16: false
+  bf16: true
+  temperature: 1.0
+  top_k: 0
+  top_p: 1.0
+
+logging:
+  backend: "tensorboard"
+  output_dir: "./outputs/grpo_4bit_example"
+  run_name: null
+  logging_steps: 10
+
+seed: 42
+

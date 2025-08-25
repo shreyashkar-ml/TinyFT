@@ -145,6 +145,21 @@ def load_prompts(cfg: Dict[str, Any]) -> List[Any]:
     return items
 
 
+def _parse_dtype(val: Optional[str]):
+    if val is None:
+        return None
+    import torch
+    mapping = {
+        "float16": torch.float16,
+        "fp16": torch.float16,
+        "bfloat16": torch.bfloat16,
+        "bf16": torch.bfloat16,
+        "float32": torch.float32,
+        "fp32": torch.float32,
+    }
+    return mapping.get(str(val).lower())
+
+
 def load_model_and_tokenizer(cfg: Dict[str, Any]):
     try:
         from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -156,16 +171,60 @@ def load_model_and_tokenizer(cfg: Dict[str, Any]):
     if not model_name:
         raise ValueError("model.model_name is required")
     tokenizer_name = mcfg.get("tokenizer_name")
-    # If tokenizer_name is None/null, use the model_name
     if tokenizer_name is None:
         tokenizer_name = model_name
 
     print("Loading model and tokenizer...")
     tok = AutoTokenizer.from_pretrained(tokenizer_name)
-    # Ensure pad token exists
     if tok.pad_token_id is None:
         tok.pad_token = tok.eos_token
-    model = AutoModelForCausalLM.from_pretrained(model_name)
+
+    # Optional quantization via bitsandbytes
+    quant_cfg = mcfg.get("quantization", {}) or {}
+    load_in_4bit = bool(quant_cfg.get("load_in_4bit", False))
+    load_in_8bit = bool(quant_cfg.get("load_in_8bit", False))
+    torch_dtype = _parse_dtype(mcfg.get("torch_dtype"))
+    attn_impl = mcfg.get("attn_implementation")
+    device_map = mcfg.get("device_map")
+
+    model_kwargs: Dict[str, Any] = {}
+    if torch_dtype is not None:
+        model_kwargs["torch_dtype"] = torch_dtype
+    if device_map is not None:
+        model_kwargs["device_map"] = device_map
+    if attn_impl is not None:
+        model_kwargs["attn_implementation"] = attn_impl
+
+    if load_in_4bit or load_in_8bit:
+        try:
+            from transformers import BitsAndBytesConfig  # type: ignore
+            bnb_cfg = BitsAndBytesConfig(
+                load_in_4bit=load_in_4bit,
+                load_in_8bit=load_in_8bit,
+                bnb_4bit_quant_type=quant_cfg.get("bnb_4bit_quant_type", "nf4"),
+                bnb_4bit_use_double_quant=bool(quant_cfg.get("bnb_4bit_use_double_quant", True)),
+                bnb_4bit_compute_dtype=_parse_dtype(quant_cfg.get("bnb_4bit_compute_dtype")) or _parse_dtype(mcfg.get("torch_dtype")),
+            )
+            model_kwargs["quantization_config"] = bnb_cfg
+            # If quantized, a device_map is often required; default to auto if unspecified
+            model_kwargs.setdefault("device_map", "auto")
+        except Exception as e:
+            print(f"Warning: bitsandbytes/quantization not available ({e}); loading in full precision.")
+
+    model = AutoModelForCausalLM.from_pretrained(model_name, **model_kwargs)
+
+    # Optional training-friendly flags
+    try:
+        if mcfg.get("use_cache") is False and hasattr(model, "config"):
+            model.config.use_cache = False  # type: ignore[attr-defined]
+    except Exception:
+        pass
+    if bool(mcfg.get("gradient_checkpointing", False)) and hasattr(model, "gradient_checkpointing_enable"):
+        try:
+            model.gradient_checkpointing_enable()
+        except Exception:
+            pass
+
     return model, tok
 
 
@@ -246,4 +305,3 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
